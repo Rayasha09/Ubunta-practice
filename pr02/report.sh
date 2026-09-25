@@ -1,17 +1,11 @@
-
 #!/usr/bin/env bash
 set -euo pipefail
-
-usage() {
-    echo "Использование: $0 [--top N] <каталог> <ERROR|WARN|INFO>"
-    echo "Или: $0 <каталог> <ERROR|WARN|INFO> [--top N]"
-}
 
 TOP=0
 
 if [[ "${1:-}" == "--top" ]]; then
-    if [[ $# -ne 4 ]] || ! [[ "${2:-}" =~ ^[1-9][0-9]*$ ]]; then
-        usage
+    if [[ $# -ne 4 ]] || ! [[ "$2" =~ ^[1-9][0-9]*$ ]]; then
+        echo "Использование: $0 [--top N] <каталог> <ERROR|WARN|INFO>"
         exit 1
     fi
     TOP="$2"
@@ -19,16 +13,15 @@ if [[ "${1:-}" == "--top" ]]; then
     LEVEL="$4"
 else
     if [[ $# -ne 2 && $# -ne 4 ]]; then
-        usage
+        echo "Использование: $0 <каталог> <ERROR|WARN|INFO> [--top N]"
         exit 1
     fi
-
     DIR="$1"
     LEVEL="$2"
 
     if [[ $# -eq 4 ]]; then
         if [[ "$3" != "--top" ]] || ! [[ "$4" =~ ^[1-9][0-9]*$ ]]; then
-            usage
+            echo "Неверный параметр --top"
             exit 1
         fi
         TOP="$4"
@@ -36,27 +29,26 @@ else
 fi
 
 if [[ ! -d "$DIR" ]]; then
-    echo "Ошибка: каталог не найден: $DIR" >&2
+    echo "Ошибка: каталог не существует: $DIR"
     exit 1
 fi
 
-case "$LEVEL" in
-    ERROR|WARN|INFO) ;;
-    *) echo "Ошибка: уровень должен быть ERROR, WARN или INFO" >&2; exit 1 ;;
-esac
+if [[ ! "$LEVEL" =~ ^(ERROR|WARN|INFO)$ ]]; then
+    echo "Ошибка: уровень должен быть ERROR, WARN или INFO"
+    exit 1
+fi
 
 shopt -s nullglob
 FILES=("$DIR"/*.log)
 
 if [[ ${#FILES[@]} -eq 0 ]]; then
-    echo "Ошибка: в каталоге нет файлов .log" >&2
+    echo "Ошибка: в каталоге нет файлов .log"
     exit 1
 fi
 
 RESULT=$(
     awk -v level="$LEVEL" '
     {
-        # Журналы с полем module=...
         if ($0 ~ ("(^|[[:space:]])" level "([[:space:]]|$)")) {
             module = ""
             for (i = 1; i <= NF; i++) {
@@ -69,7 +61,6 @@ RESULT=$(
             if (module != "") count[module]++
         }
 
-        # Linux.log: приблизительная классификация по ключевым словам
         lower = tolower($0)
         if (level == "ERROR" && lower ~ /(error|failed|failure|fatal|alert)/)
             count["linux-log"]++
