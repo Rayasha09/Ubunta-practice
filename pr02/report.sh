@@ -1,48 +1,62 @@
 
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
-if [ "$#" -lt 2 ]; then
-    echo "Использование: $0 <каталог> <уровень> [--top N]"
-    echo "Уровень: ERROR, WARN или INFO"
-    exit 1
-fi
+usage() {
+    echo "Использование: $0 [--top N] <каталог> <ERROR|WARN|INFO>"
+    echo "Или: $0 <каталог> <ERROR|WARN|INFO> [--top N]"
+}
 
-DIR="$1"
-LEVEL="$2"
 TOP=0
 
-if [ ! -d "$DIR" ]; then
-    echo "Ошибка: каталог не существует"
-    exit 1
-fi
-
-if [[ ! "$LEVEL" =~ ^(ERROR|WARN|INFO)$ ]]; then
-    echo "Ошибка: уровень должен быть ERROR, WARN или INFO"
-    exit 1
-fi
-
-if [ "$#" -gt 2 ]; then
-    if [ "$#" -ne 4 ] || [ "$3" != "--top" ] ||
-       ! [[ "$4" =~ ^[1-9][0-9]*$ ]]; then
-        echo "Использование: $0 <каталог> <уровень> [--top N]"
+if [[ "${1:-}" == "--top" ]]; then
+    if [[ $# -ne 4 ]] || ! [[ "${2:-}" =~ ^[1-9][0-9]*$ ]]; then
+        usage
         exit 1
     fi
-    TOP="$4"
+    TOP="$2"
+    DIR="$3"
+    LEVEL="$4"
+else
+    if [[ $# -ne 2 && $# -ne 4 ]]; then
+        usage
+        exit 1
+    fi
+
+    DIR="$1"
+    LEVEL="$2"
+
+    if [[ $# -eq 4 ]]; then
+        if [[ "$3" != "--top" ]] || ! [[ "$4" =~ ^[1-9][0-9]*$ ]]; then
+            usage
+            exit 1
+        fi
+        TOP="$4"
+    fi
 fi
+
+if [[ ! -d "$DIR" ]]; then
+    echo "Ошибка: каталог не найден: $DIR" >&2
+    exit 1
+fi
+
+case "$LEVEL" in
+    ERROR|WARN|INFO) ;;
+    *) echo "Ошибка: уровень должен быть ERROR, WARN или INFO" >&2; exit 1 ;;
+esac
 
 shopt -s nullglob
 FILES=("$DIR"/*.log)
 
-if [ "${#FILES[@]}" -eq 0 ]; then
-    echo "Ошибка: в каталоге нет файлов .log"
+if [[ ${#FILES[@]} -eq 0 ]]; then
+    echo "Ошибка: в каталоге нет файлов .log" >&2
     exit 1
 fi
 
 RESULT=$(
     awk -v level="$LEVEL" '
     {
-        # Старый формат: module=net
+        # Журналы с полем module=...
         if ($0 ~ ("(^|[[:space:]])" level "([[:space:]]|$)")) {
             module = ""
             for (i = 1; i <= NF; i++) {
@@ -55,28 +69,32 @@ RESULT=$(
             if (module != "") count[module]++
         }
 
-        # Формат Linux.log: дата время host service: сообщение
-        if (level == "ERROR" && tolower($0) ~ /(error|failed|failure|fatal|alert)/)
+        # Linux.log: приблизительная классификация по ключевым словам
+        lower = tolower($0)
+        if (level == "ERROR" && lower ~ /(error|failed|failure|fatal|alert)/)
             count["linux-log"]++
-        else if (level == "WARN" && tolower($0) ~ /(warn|warning|alert)/)
+        else if (level == "WARN" && lower ~ /(warn|warning|alert)/)
             count["linux-log"]++
-        else if (level == "INFO" && tolower($0) ~ /(info|succeeded|initialized|starting|started)/)
+        else if (level == "INFO" && lower ~ /(info|succeeded|initialized|starting|started)/)
             count["linux-log"]++
     }
     END {
         for (module in count)
             printf "%d %s\n", count[module], module
-    }' "${FILES[@]}" |
-    sort -nr
+    }' "${FILES[@]}" | sort -k1,1nr
 )
 
 echo "Модуль        Количество"
 echo "------------------------"
 
-if [ "$TOP" -gt 0 ]; then
-    printf '%s\n' "$RESULT" | head -n "$TOP" |
-        awk '{printf "%-14s %d\n", $2, $1}'
+if [[ -n "$RESULT" ]]; then
+    if [[ "$TOP" -gt 0 ]]; then
+        printf '%s\n' "$RESULT" | head -n "$TOP" |
+            awk '{printf "%-14s %d\n", $2, $1}'
+    else
+        printf '%s\n' "$RESULT" |
+            awk '{printf "%-14s %d\n", $2, $1}'
+    fi
 else
-    printf '%s\n' "$RESULT" |
-        awk '{printf "%-14s %d\n", $2, $1}'
+    echo "Совпадений не найдено"
 fi
