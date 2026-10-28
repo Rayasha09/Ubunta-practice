@@ -35,7 +35,7 @@ python3 hello.py data/Linux.log
 strace -c ls
 strace -c cat data/Linux.log
 strace -f -o trace.txt python3 hello.py data/01.log
-strace -e trace=openat cat data/Linux.log
+strace -e trace=openat cat data/Linux.log > /dev/null
 ```
 
 ## Что делает `report.sh`
